@@ -1,0 +1,66 @@
+#!/usr/bin/env python
+# From gitlab.com/sherbang/gitpod-utils
+from __future__ import print_function
+from future.moves.http.server import BaseHTTPRequestHandler, HTTPServer
+from gp_url import get_gitpod_url_fragment
+import psutil
+import sys
+
+PORT_NUMBER = 7919
+REDIRECT_URL = ''
+
+# test: GITPOD_WORKSPACE_URL='https://foo' gp_browser http://www.google.com & sleep 1 && curl -sD - -o /dev/null http://localhost:7919
+
+def get_listening_ports():
+    ports = []
+    for sconn in psutil.net_connections('tcp'):
+        if sconn.laddr.ip == '0.0.0.0' or sconn.laddr.ip == '::':
+            proc = psutil.Process(sconn.pid)
+            if proc.exe() == '/usr/bin/gp':
+                # If we're using gp forward-port to redirect a
+                # localhost port, then we want to redirect the
+                # same port on the client side
+                exe, cmd, local_port, remote_port = proc.cmdline()
+                if cmd != 'forward-port':
+                    # I'm going to assum this isn't a port we're
+                    # interested in.  Skip it altogether.
+                    continue
+                assert str(remote_port) == str(sconn.laddr.port), '{} != {}'.format(remote_port, sconn.laddr.port)
+                ports.append((local_port, remote_port))
+            else:
+                port = sconn.laddr.port
+                ports.append((port, port))
+    return ports
+
+
+class myHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'text/html')
+        self.send_header('X-GP-Hostname', get_gitpod_url_fragment())
+        # TODO: Make this only handle exposed ports
+        for lport,rport in get_listening_ports():
+            self.send_header('X-GP-Port', '{},{}'.format(lport, rport))
+        self.end_headers()
+        self.wfile.write("""<script>
+                            window.location.href = "{}";
+                            </script>""".format(REDIRECT_URL))
+        return
+
+
+if len(sys.argv) == 1:
+    print('usage: {} <url>'.format(sys.argv[0]))
+    sys.exit(1)
+
+REDIRECT_URL = sys.argv[1]
+
+try:
+    server = HTTPServer(('', PORT_NUMBER), myHandler)
+    print('Started httpserver on port {}'.format(PORT_NUMBER))
+
+    # Just handle 1 request
+    server.handle_request()
+
+except KeyboardInterrupt:
+    print('^C received, shutting down the web server')
+    server.socket.close()

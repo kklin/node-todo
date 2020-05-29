@@ -1,0 +1,16 @@
+image:
+  file: .gitpod.Dockerfile
+tasks:
+  - init: gp open ./app/routes.js ./README-gitpod.md
+ports:
+  - port: 8080
+    onOpen: open-preview
+  - port: 22022
+    onOpen: ignore
+  - port: 27017
+    onOpen: ignore
+  - port: 8384
+    onOpen: ignore
+  # Login redirect server.
+  - port: 7919
+    onOpen: open-browser
